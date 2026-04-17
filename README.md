@@ -24,7 +24,7 @@ import (
 )
 
 // ...
-simlatencies.MustInit()
+simlatencies.MustInit(ips, predictions) // See test for an example on how to load these
 latency := simlatencies.MustLatency(simlatencies.IPs[0], simlatencies.IPs[1])
 ````
 
