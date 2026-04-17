@@ -2,7 +2,6 @@ package simlatencies
 
 import (
 	"bufio"
-	"compress/gzip"
 	"embed"
 	_ "embed"
 	"encoding/csv"
@@ -23,20 +22,11 @@ var latencies [][]time.Duration
 
 var initialized bool
 
-func Init() error {
-	f, err := data.Open("masked-ips.txt.gz")
-	if err != nil {
-		return fmt.Errorf("opening masked-ips.txt.gz: %w", err)
-	}
-	ipReader, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("creating gzip reader for masked-ips.txt.gz: %w", err)
-	}
-
+func Init(maskedIPs, pairwisePredictions io.Reader) error {
 	IPs = make([]netip.Addr, 0, 7000)
 	ipToID = make(map[netip.Addr]int, 7000)
 
-	scanner := bufio.NewScanner(ipReader)
+	scanner := bufio.NewScanner(maskedIPs)
 	var i int
 	for scanner.Scan() {
 		ipString := scanner.Text()
@@ -59,15 +49,7 @@ func Init() error {
 		}
 	}
 
-	f, err = data.Open("pairwise_predictions.csv.gz")
-	if err != nil {
-		return fmt.Errorf("opening pairwise_predictions.csv.gz: %w", err)
-	}
-	gzr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("creating gzip reader for pairwise_predictions.csv.gz: %w", err)
-	}
-	r := csv.NewReader(gzr)
+	r := csv.NewReader(pairwisePredictions)
 	if _, err := r.Read(); err != nil {
 		return fmt.Errorf("reading pairwise_predictions.csv.gz header: %w", err)
 	}
@@ -97,8 +79,8 @@ func Init() error {
 	return nil
 }
 
-func MustInit() {
-	if err := Init(); err != nil {
+func MustInit(maskedIPs, pairwisePredictions io.Reader) {
+	if err := Init(maskedIPs, pairwisePredictions); err != nil {
 		panic(err)
 	}
 }

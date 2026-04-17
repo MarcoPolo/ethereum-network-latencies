@@ -1,14 +1,34 @@
 package simlatencies_test
 
 import (
+	"compress/gzip"
+	"fmt"
 	"net/netip"
+	"os"
 	"testing"
 
 	simlatencies "github.com/marcopolo/ethereum-network-latencies"
 )
 
 func init() {
-	simlatencies.MustInit()
+	f, err := os.Open("masked-ips.txt.gz")
+	if err != nil {
+		panic(fmt.Errorf("opening masked-ips.txt.gz: %w", err))
+	}
+	ipReader, err := gzip.NewReader(f)
+	if err != nil {
+		panic(fmt.Errorf("creating gzip reader for masked-ips.txt.gz: %w", err))
+	}
+
+	f, err = os.Open("pairwise_predictions.csv.gz")
+	if err != nil {
+		panic(fmt.Errorf("opening pairwise_predictions.csv.gz: %w", err))
+	}
+	pairwisePredictions, err := gzip.NewReader(f)
+	if err != nil {
+		panic(fmt.Errorf("creating gzip reader for pairwise_predictions.csv.gz: %w", err))
+	}
+	simlatencies.MustInit(ipReader, pairwisePredictions)
 }
 
 func TestLatencyBetweenFirstTwoIPs(t *testing.T) {
