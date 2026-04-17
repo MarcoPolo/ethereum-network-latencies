@@ -2,113 +2,109 @@ package simlatencies
 
 import (
 	"bufio"
-	"embed"
+	"compress/gzip"
 	_ "embed"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"net/netip"
+	"os"
 	"strconv"
 	"time"
 )
 
-//go:embed masked-ips.txt.gz pairwise_predictions.csv.gz
-var data embed.FS
+func NewNetworkFromFilepaths(maskedIPsGZFile, pairwisePredictionsGZFile string) (Network, error) {
+	ipsFile, err := os.Open(maskedIPsGZFile)
+	if err != nil {
+		return Network{}, err
+	}
+	ipReader, err := gzip.NewReader(ipsFile)
+	if err != nil {
+		return Network{}, fmt.Errorf("creating gzip reader for masked-ips.txt.gz: %w", err)
+	}
 
-var IPs []netip.Addr
+	latenciesFile, err := os.Open(pairwisePredictionsGZFile)
+	if err != nil {
+		return Network{}, err
+	}
+	latencies, err := gzip.NewReader(latenciesFile)
+	if err != nil {
+		panic(fmt.Errorf("creating gzip reader for pairwise_predictions.csv.gz: %w", err))
+	}
+	return NewNetworkFromReaders(ipReader, latencies)
+}
 
-var ipToID map[netip.Addr]int
-var latencies [][]time.Duration
+func NewNetworkFromReaders(maskedIPsReader, latenciesReader io.Reader) (Network, error) {
+	ips := make([]netip.Addr, 0, 7000)
 
-var initialized bool
-
-func Init(maskedIPs, pairwisePredictions io.Reader) error {
-	IPs = make([]netip.Addr, 0, 7000)
-	ipToID = make(map[netip.Addr]int, 7000)
-
-	scanner := bufio.NewScanner(maskedIPs)
+	scanner := bufio.NewScanner(maskedIPsReader)
 	var i int
 	for scanner.Scan() {
 		ipString := scanner.Text()
 		ip, err := netip.ParseAddr(ipString)
 		if err != nil {
-			return fmt.Errorf("parsing IP %q: %w", ipString, err)
+			return Network{}, fmt.Errorf("parsing IP %q: %w", ipString, err)
 		}
-		IPs = append(IPs, ip)
-		ipToID[ip] = i
+		ips = append(ips, ip)
 		i++
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanning masked-ips.txt.gz: %w", err)
+		return Network{}, fmt.Errorf("scanning masked-ips.txt.gz: %w", err)
 	}
 
-	if latencies == nil {
-		latencies = make([][]time.Duration, len(IPs))
-		for i := range latencies {
-			latencies[i] = make([]time.Duration, len(IPs))
-		}
+	latencies := make([][]time.Duration, len(ips))
+	for i := range latencies {
+		latencies[i] = make([]time.Duration, len(ips))
 	}
 
-	r := csv.NewReader(pairwisePredictions)
+	r := csv.NewReader(latenciesReader)
 	if _, err := r.Read(); err != nil {
-		return fmt.Errorf("reading pairwise_predictions.csv.gz header: %w", err)
+		return Network{}, fmt.Errorf("reading pairwise_predictions.csv.gz header: %w", err)
 	}
 	for {
 		rec, err := r.Read()
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			return fmt.Errorf("reading pairwise_predictions.csv.gz record: %w", err)
+			return Network{}, fmt.Errorf("reading pairwise_predictions.csv.gz record: %w", err)
 		}
 		srcID, err := strconv.Atoi(rec[0])
 		if err != nil {
-			return fmt.Errorf("parsing src ID %q: %w", rec[0], err)
+			return Network{}, fmt.Errorf("parsing src ID %q: %w", rec[0], err)
 		}
 		destID, err := strconv.Atoi(rec[1])
 		if err != nil {
-			return fmt.Errorf("parsing dest ID %q: %w", rec[1], err)
+			return Network{}, fmt.Errorf("parsing dest ID %q: %w", rec[1], err)
 		}
 		latencyMS, err := strconv.ParseFloat(rec[2], 64)
 		if err != nil {
-			return fmt.Errorf("parsing latency %q: %w", rec[2], err)
+			return Network{}, fmt.Errorf("parsing latency %q: %w", rec[2], err)
 		}
 		latencies[srcID][destID] = time.Duration(latencyMS * float64(time.Millisecond))
 	}
 
-	initialized = true
-	return nil
+	return Network{
+		IPs:       ips,
+		Latencies: latencies,
+	}, nil
 }
 
-func MustInit(maskedIPs, pairwisePredictions io.Reader) {
-	if err := Init(maskedIPs, pairwisePredictions); err != nil {
-		panic(err)
-	}
+type Network struct {
+	IPs       []netip.Addr
+	Latencies [][]time.Duration
 }
 
-func Latency(src, dest netip.Addr) (time.Duration, error) {
-	if !initialized {
-		return 0, fmt.Errorf("latencies not initialized. Must call simlatencies.Init()")
+func (n *Network) Latency(src, dest netip.Addr) time.Duration {
+	src4 := src.As4()
+	srcID := int(src4[2])*256 + int(src4[3])
+	dest4 := dest.As4()
+	destID := int(dest4[2])*256 + int(dest4[3])
+	if srcID == destID {
+		return 0
 	}
-
-	srcID, ok := ipToID[src]
-	if !ok {
-		return 0, fmt.Errorf("source IP not found")
+	if srcID > destID {
+		// Latencies are only stored for the smaller index to the larger index.
+		srcID, destID = destID, srcID
 	}
-	destID, ok := ipToID[dest]
-	if !ok {
-		return 0, fmt.Errorf("destination IP not found")
-	}
-	latency := latencies[srcID][destID]
-	if latency == 0 {
-		return 0, fmt.Errorf("latency not found")
-	}
-	return latency, nil
-}
-
-func MustLatency(src, dest netip.Addr) time.Duration {
-	latency, err := Latency(src, dest)
-	if err != nil {
-		panic(err)
-	}
-	return latency
+	return n.Latencies[srcID][destID]
 }

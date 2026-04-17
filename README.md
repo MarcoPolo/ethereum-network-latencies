@@ -24,8 +24,8 @@ import (
 )
 
 // ...
-simlatencies.MustInit(ips, predictions) // See test for an example on how to load these
-latency := simlatencies.MustLatency(simlatencies.IPs[0], simlatencies.IPs[1])
+network, err = simlatencies.NewNetworkFromFilepaths("masked-ips.txt.gz", "pairwise_predictions.csv.gz")
+latency := network.Latency(network.IPs[0], network.IPs[1])
 ````
 
 ## How
@@ -49,7 +49,8 @@ latency := simlatencies.MustLatency(simlatencies.IPs[0], simlatencies.IPs[1])
 ### Masked IP format
 
 Each line is a masked IP in the form `1.C.x.y`. The second byte `C` encodes the
-continent:
+continent (see table below). x and y encode the 0-indexed position of the IP
+address in the list.
 
 | Byte | Continent     |
 | ---- | ------------- |
