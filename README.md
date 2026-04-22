@@ -44,7 +44,7 @@ latency := network.Latency(network.IPs[0], network.IPs[1])
    2. IP address metadata such as AS number and lat/long.
 5. We used this model to predict the latency between every observed Ethereum
    node to every other observed Ethereum node.
-6. The IP addresses were then masked before publishing. The masking
+6. The IP addresses were then masked before publishing.
 
 ### Masked IP format
 
